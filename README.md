@@ -8,6 +8,7 @@ https://www.vultr.com/?ref=7115062
 
 yum install wget -y -q ; wget -q -O wgs https://raw.githubusercontent.com/chinashiyu/wireguard/master/wg.txt ; sh wgs
 
+
 安装完成后，下载安装客户端，并导入配置文件：
 
 Windows 客户端下载：
