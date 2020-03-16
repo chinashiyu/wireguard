@@ -9,7 +9,7 @@ function installSoftwre() {
         dnf -q -y --nogpgcheck install  langpacks-zh_CN
         echo 'LANG="zh_CN.UTF-8"' > /etc/locale.conf
         echo 'LC_ALL="zh_CN.UTF-8"' >> /etc/locale.conf
-        source /etc/locale.conf
+        source /etc/locale.conf > /dev/null 2>&1
 
         echo -n "▋";
         dnf -q -y --nogpgcheck install  elrepo-release
