@@ -6,12 +6,6 @@ PUBLIC_PORT=2294
 function installSoftwre() {
 
         echo -n "▋";
-        dnf -q -y --nogpgcheck install  langpacks-zh_CN
-        echo 'LANG="zh_CN.UTF-8"' > /etc/locale.conf
-        echo 'LC_ALL="zh_CN.UTF-8"' >> /etc/locale.conf
-        source /etc/locale.conf > /dev/null 2>&1
-
-        echo -n "▋";
         dnf -q -y --nogpgcheck install  elrepo-release
         echo -n "▋";
         dnf -q -y --nogpgcheck install epel-release
@@ -26,6 +20,12 @@ function installSoftwre() {
         echo -n "▋";
         dnf -q -y --nogpgcheck  install wireguard-dkms wireguard-tools
 
+        echo -n "▋";
+        dnf -q -y --nogpgcheck install  langpacks-zh_CN
+        echo 'LANG="zh_CN.UTF-8"' > /etc/locale.conf
+        echo 'LC_ALL="zh_CN.UTF-8"' >> /etc/locale.conf
+        source /etc/locale.conf > /dev/null 2>&1
+        
 }
 
 # 执行配置
