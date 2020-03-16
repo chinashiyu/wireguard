@@ -1,0 +1,236 @@
+#!/bin/bash
+
+PUBLIC_PORT=2294
+
+# 安装软件
+function installSoftwre() {
+
+        echo -n "▋";
+        dnf -q -y --nogpgcheck install  langpacks-zh_CN
+        echo 'LANG="zh_CN.UTF-8"' > /etc/locale.conf
+        echo 'LC_ALL="zh_CN.UTF-8"' >> /etc/locale.conf
+        source /etc/locale.conf
+
+        echo -n "▋";
+        dnf -q -y --nogpgcheck install  elrepo-release
+        echo -n "▋";
+        dnf -q -y --nogpgcheck install epel-release
+        echo -n "▋";
+        dnf -q -y --nogpgcheck install qrencode iptraf-ng net-tools bind-utils
+        echo -n "▋";
+        dnf -q -y --nogpgcheck install kernel-headers-$(uname -r) kernel-devel-$(uname -r)
+        echo -n "▋";
+        dnf -q -y --nogpgcheck  config-manager --set-enabled PowerTools
+        echo -n "▋";
+        dnf -q -y --nogpgcheck  copr enable jdoss/wireguard
+        echo -n "▋";
+        dnf -q -y --nogpgcheck  install wireguard-dkms wireguard-tools
+
+}
+
+# 执行配置
+function setupWireguard() {
+
+        echo -n "▋";
+        PUBLIC_IP="$(dig TXT +short o-o.myaddr.l.google.com @ns1.google.com | tr -d '"*[:space:]*')"
+
+        CNF_DIR="/etc/wireguard"
+        TMP_DIR="$CNF_DIR/.tmp"
+
+        mkdir -p $CNF_DIR $TMP_DIR
+
+        echo -n > $TMP_DIR/server-all-peer
+
+        echo -n "▋";
+        wg genkey | tee $TMP_DIR/server-wg0-private-key | wg pubkey > $TMP_DIR/server-wg0-public-key
+
+        # 服务器接口配置
+        echo -n > $CNF_DIR/wg0.conf
+        echo "[Interface]" >> $CNF_DIR/wg0.conf
+        echo "Address = 10.10.20.1/24" >> $CNF_DIR/wg0.conf
+        echo "ListenPort = $PUBLIC_PORT" >> $CNF_DIR/wg0.conf
+        echo "PrivateKey = $(cat $TMP_DIR/server-wg0-private-key)" >> $CNF_DIR/wg0.conf
+
+        for ((i=0; i<10; i++)); do
+
+                echo -n "▋";
+                RAND_PORT=$(expr $RANDOM % 1000 + 30001)
+
+                wg genkey | tee $TMP_DIR/client-wg$i-private-key | wg pubkey > $TMP_DIR/client-wg$i-public-key
+
+                # 客户端接口配置
+                echo > $TMP_DIR/wg$i.conf
+                echo "# 配置内容从下一行开始" >> $TMP_DIR/wg$i.conf
+                echo >> $TMP_DIR/wg$i.conf
+
+                echo "[Interface]" >> $TMP_DIR/wg$i.conf
+                echo "Address = 10.10.20.$(expr $i + 21)/24" >> $TMP_DIR/wg$i.conf
+                echo "PrivateKey = $(cat $TMP_DIR/client-wg$i-private-key)" >> $TMP_DIR/wg$i.conf
+                echo "DNS = 8.8.8.8" >> $TMP_DIR/wg$i.conf
+
+                # 客户端Peer
+                echo "[Peer]" >> $TMP_DIR/wg$i.conf
+                echo "PublicKey = $(cat $TMP_DIR/server-wg0-public-key)" >> $TMP_DIR/wg$i.conf
+                echo "AllowedIPs = 0.0.0.0/0" >> $TMP_DIR/wg$i.conf
+                echo "Endpoint = $PUBLIC_IP:$RAND_PORT" >> $TMP_DIR/wg$i.conf
+
+                # 服务器所有Peer
+                echo "[Peer]" >> $TMP_DIR/server-all-peer
+                echo "PublicKey = $(cat $TMP_DIR/client-wg$i-public-key)" >> $TMP_DIR/server-all-peer
+                echo "AllowedIPs = 10.10.20.$(expr $i + 21)/32" >> $TMP_DIR/server-all-peer
+
+                echo >> $TMP_DIR/wg$i.conf
+                echo "# 配置内容到上一行结束" >> $TMP_DIR/wg$i.conf
+                echo >> $TMP_DIR/wg$i.conf
+
+        done
+
+        echo -n "▋";
+        cat $TMP_DIR/server-all-peer >> $CNF_DIR/wg0.conf
+
+        chmod -R go-rwx /etc/wireguard
+
+        echo -n "▋";
+        systemctl -q enable  wg-quick@wg0
+
+        echo -n "▋";
+        systemctl -q start   wg-quick@wg0
+        # systemctl status  wg-quick@wg0
+
+        echo -n "▋";
+        if [ "$(grep 'net.core.netdev_max_backlog = 1000000' /etc/sysctl.conf)" == "" ]; then echo "net.core.netdev_max_backlog = 1000000" >> /etc/sysctl.conf; fi ;
+
+        echo -n "▋";
+        sysctl -p -q > /dev/null 2>&1 ;
+
+        echo -n "▋";
+        if [ "$(firewall-cmd --permanent --query-masquerade)" == "no" ]; then firewall-cmd -q --permanent --add-masquerade > /dev/null 2>&1 ; fi ;
+
+        echo -n "▋";
+        if [ "`firewall-cmd --permanent --query-forward-port=port=30001-31000:proto=udp:toport=$PUBLIC_PORT`" == "no" ]; then firewall-cmd -q --permanent --add-forward-port=port=30001-31000:proto=udp:toport=$PUBLIC_PORT > /dev/null 2>&1 ;  fi ;
+
+        echo -n "▋";
+        firewall-cmd -q --reload > /dev/null 2>&1 ;
+
+        echo -n "▋";
+        cp -f $TMP_DIR/wg[1-9].conf /root/
+
+}
+
+
+# 删除配置
+function removeWireguard() {
+
+        echo -n "▋▋";
+        if [ "`firewall-cmd --permanent --query-forward-port=port=30001-31000:proto=udp:toport=$PUBLIC_PORT`" == "yes" ]; then firewall-cmd -q --permanent --remove-forward-port=port=30001-31000:proto=udp:toport=$PUBLIC_PORT > /dev/null 2>&1 ;  fi ;
+
+        echo -n "▋▋";
+        firewall-cmd -q --reload > /dev/null 2>&1 ;
+
+        echo -n "▋▋";
+
+        systemctl -q stop  wg-quick@wg0
+        systemctl -q disable   wg-quick@wg0
+
+        echo -n "▋▋";
+        rm -f -r /etc/wireguard
+
+        echo -n "▋▋";
+        rm  -f /root/wg[1-9].conf
+
+}
+
+
+function echoHelp() {
+
+        echo "恭喜你！已成功安装 WireGuard"
+        echo ;
+        echo "当前目录下的 wg1.conf 至 wg9.conf 为客户端配置文件"
+        echo ;
+        echo "请使用 cat 命令查看配置文件内容，例如 cat wg1.conf"
+        echo ;
+        echo "下载或者复制文件内容，并保存为本地同名纯文本文件"
+        echo ;
+        echo "然后导入到 WireGuard 或者 TunSafe 等客户端，即可使用"
+
+}
+
+# 操作菜单
+function startMenu () {
+
+        clear
+        echo ;
+        echo "系统已经安装 WireGuard 服务器，你可以："
+        echo ;
+
+        echo "   1) 删除 WireGuard 并重装"
+        echo "   2) 删除 WireGuard"
+        echo "   3) 退出"
+
+        echo ;
+
+        until [[ "$MENU_NO" =~ ^[1-3]$ ]]; do
+                read -rp "请输入一个序号 [1-3]: " MENU_NO
+        done
+
+        case $MENU_NO in
+                1)
+                        echo ;
+                        read -rp "确定删除 WireGuard 并重新安装? [yes/no]: " -e  OK
+                        if [[ "$OK" = 'yes' ]]; then
+                                echo ;
+                                echo ;
+                                echo "正在重新安装 WireGuard 服务器，请稍候 ..."
+                                echo ;
+                                removeWireguard ;
+                                installSoftwre ;
+                                setupWireguard ;
+                                echo ;
+                                echo ;
+                                echoHelp ;
+                                echo ;
+                        fi
+                        echo ;
+                ;;
+                2)
+                        echo ;
+                        read -rp "确定删除 WireGuard? [yes/no]: " -e  OK
+                        if [[ "$OK" = 'yes' ]]; then
+                                echo ;
+                                echo ;
+                                echo "正在删除 WireGuard 服务器，请稍候 ..."
+                                echo ;
+                                removeWireguard ;
+                                echo ;
+                                echo ;
+                                echo "已经成功删除 WireGuard 服务器"
+                                echo ;
+                        fi
+                        echo ;
+                ;;
+                3)
+                        exit 0 ;
+                ;;
+        esac
+}
+
+if [[ -e /etc/wireguard ]]; then
+
+        startMenu ;
+
+else
+
+        echo ;
+        echo ;
+        echo "正在安装 WireGuard 服务器，请稍候 ..."
+        echo ;
+        installSoftwre ;
+        setupWireguard ;
+        echo ;
+        echo ;
+        echoHelp ;
+        echo ;
+        echo ;
+
+fi
+
